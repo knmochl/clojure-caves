@@ -1,5 +1,5 @@
 (ns caves.world.generation
-  (:use [clojure.set :only [union difference]]
+  (:use [clojure.set :only [union difference intersection]]
         [caves.entities.player :only [make-player]]
         [caves.entities.lichen :only [make-lichen]]
         [caves.entities.bunny :only [make-bunny]]
@@ -45,7 +45,7 @@
         (recur walked to-walk)))))
 
 (defn get-region-map
-  "Get a region map for the given level
+  "Get a region map for the world
 
   A region map is a map of coordinates to region numbers.  Unwalkable
   coordinates will not be included in the map.  For example the map:
@@ -55,10 +55,10 @@
 
   would have a region map of:
 
-    x y  region
-  {[0 0] 0
-   [2 0] 1
-   [2 1] 1}
+    x y z  region
+  {[0 0 0] 0
+   [2 0 0] 1
+   [2 1 0] 1}
   "
   [tiles]
   (loop [remaining (filter-walkable tiles all-coords)
@@ -139,7 +139,8 @@
                 world)
        n))
 
-(defn populate-world [world]
+(defn populate-world
+  [world]
   (let [world (assoc-in world [:entities :player]
                         (make-player (find-empty-tile world)))]
     (-> world
@@ -147,11 +148,51 @@
         (add-creatures make-bunny 20)
         (add-creatures make-silverfish 4))))
 
+(defn region-overlap
+  [region-map upper-region lower-region]
+  (let [map-by-region (group-by #(get region-map %) (keys region-map))]
+    (intersection (into #{} (mapv #(take 2 %) (get map-by-region upper-region)))
+                  (into #{} (mapv #(take 2 %) (get map-by-region lower-region))))))
+
+(defn connected-regions
+  [region-map]
+  (into #{}
+        (remove nil?
+                (map (fn [[x y z]] (if (contains? region-map [x y (inc z)])
+                                     [z
+                                      (get region-map [x y z])
+                                      (get region-map [x y (inc z)])]
+                                     nil))
+                     (keys region-map)))))
+
+(defn create-stairs
+  [world z stair-coords]
+  (if (empty? stair-coords)
+    world
+    (let [[x y] (first stair-coords)]
+      (recur
+       (-> world
+           (assoc-in [:tiles z y x] (tiles :down))
+           (assoc-in [:tiles (inc z) y x] (tiles :up))) z (rest stair-coords)))))
+
+(defn connect-region
+  [world z upper-region lower-region]
+  (let [overlap (region-overlap (:regions world) upper-region lower-region)
+        stairs (partition-all 1 250 (shuffle overlap))]
+    (create-stairs world z stairs)))
+
+(defn connect-regions
+  [world]
+  (let [region-map (:regions world)
+        region-connections (connected-regions region-map)]
+    world))
+
 (defn random-world
   []
   (let [world (->World (random-tiles))
         world (nth (iterate smooth-world world) 3)
-        world (populate-world world)
-        world (assoc world :regions (get-region-map (:tiles world)))]
+        world (assoc world :regions (get-region-map (:tiles world)))
+        world (connect-regions world)
+        world (populate-world world)]
     world))
 

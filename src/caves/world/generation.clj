@@ -149,10 +149,9 @@
         (add-creatures make-silverfish 4))))
 
 (defn region-overlap
-  [region-map upper-region lower-region]
-  (let [map-by-region (group-by #(get region-map %) (keys region-map))]
-    (intersection (into #{} (mapv #(take 2 %) (get map-by-region upper-region)))
-                  (into #{} (mapv #(take 2 %) (get map-by-region lower-region))))))
+  [map-by-region upper-region lower-region]
+  (intersection (into #{} (mapv #(take 2 %) (get map-by-region upper-region)))
+                (into #{} (mapv #(take 2 %) (get map-by-region lower-region)))))
 
 (defn connected-regions
   [region-map]
@@ -175,24 +174,25 @@
            (assoc-in [:tiles z y x] (tiles :down))
            (assoc-in [:tiles (inc z) y x] (tiles :up))) z (rest stair-coords)))))
 
-(defn connect-region
-  [world z upper-region lower-region]
-  (let [overlap (region-overlap (:regions world) upper-region lower-region)
+(defn connect-regions
+  [map-by-region world [z upper-region lower-region]]
+  (let [overlap (region-overlap map-by-region upper-region lower-region)
         stairs (partition-all 1 250 (shuffle overlap))]
     (create-stairs world z stairs)))
 
-(defn connect-regions
+(defn connect-all-regions
   [world]
   (let [region-map (:regions world)
-        region-connections (connected-regions region-map)]
-    world))
+        region-connections (connected-regions region-map)
+        map-by-region (group-by #(get region-map %) (keys region-map))]
+    (reduce (partial connect-regions map-by-region) world region-connections)))
 
 (defn random-world
   []
   (let [world (->World (random-tiles))
         world (nth (iterate smooth-world world) 3)
         world (assoc world :regions (get-region-map (:tiles world)))
-        world (connect-regions world)
+        world (connect-all-regions world)
         world (populate-world world)]
     world))
 
